@@ -26,11 +26,22 @@ export default async function noticeRoutes(app: FastifyInstance) {
         description: "Retorna o aviso ativo mais recente.",
         response: {
           200: NoticeResponse,
+          404: {
+            type: "object",
+            properties: {
+              error: { type: "string" },
+            },
+          },
         },
       },
     },
-    async () => {
-      return noticeService.getActiveNotice();
+    async (_request, reply) => {
+      const notice = await noticeService.getActiveNotice();
+      if (!notice) {
+        return reply.code(404).send({ error: "Active notice not found" });
+      }
+
+      return notice;
     }
   );
 

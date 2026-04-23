@@ -1,7 +1,25 @@
 import { Resend } from "resend";
 import prisma from "../lib/prisma";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+let resendClient: Resend | null = null;
+
+function isEmailEnabled() {
+  return Boolean(process.env.RESEND_API_KEY);
+}
+
+function getResendClient() {
+  const apiKey = process.env.RESEND_API_KEY;
+
+  if (!apiKey) {
+    throw new Error("RESEND_API_KEY is not configured");
+  }
+
+  if (!resendClient) {
+    resendClient = new Resend(apiKey);
+  }
+
+  return resendClient;
+}
 
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
@@ -19,6 +37,8 @@ function unsubscribeLink(subscriberId: string) {
 }
 
 export async function sendWelcomeEmail(email: string, subscriberId: string) {
+  if (!isEmailEnabled()) return;
+
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
       <h1 style="color: #1a1a1a;">Bem-vindo à IDEA Newsletter! 🎉</h1>
@@ -36,7 +56,7 @@ export async function sendWelcomeEmail(email: string, subscriberId: string) {
     </div>
   `;
 
-  await resend.emails.send({
+  await getResendClient().emails.send({
     from: `IDEA Newsletter <${FROM_EMAIL}>`,
     to: email,
     subject: "Bem-vindo à IDEA Newsletter!",
@@ -45,6 +65,8 @@ export async function sendWelcomeEmail(email: string, subscriberId: string) {
 }
 
 export async function sendArticleNewsletter(article: ArticleForNewsletter) {
+  if (!isEmailEnabled()) return;
+
   const subscribers = await prisma.subscriber.findMany({
     select: { id: true, email: true },
   });
@@ -74,7 +96,7 @@ export async function sendArticleNewsletter(article: ArticleForNewsletter) {
       </div>
     `;
 
-    await resend.emails.send({
+    await getResendClient().emails.send({
       from: `IDEA Newsletter <${FROM_EMAIL}>`,
       to: subscriber.email,
       subject: `Novo artigo: ${article.metaTitle}`,
@@ -92,6 +114,8 @@ interface NewsForNewsletter {
 }
 
 export async function sendNewsNewsletter(news: NewsForNewsletter) {
+  if (!isEmailEnabled()) return;
+
   const subscribers = await prisma.subscriber.findMany({
     select: { id: true, email: true },
   });
@@ -121,7 +145,7 @@ export async function sendNewsNewsletter(news: NewsForNewsletter) {
       </div>
     `;
 
-    await resend.emails.send({
+    await getResendClient().emails.send({
       from: `IDEA Newsletter <${FROM_EMAIL}>`,
       to: subscriber.email,
       subject: `Nova notícia: ${news.metaTitle}`,
@@ -136,6 +160,7 @@ export async function sendNewsletter(subject: string, content: string) {
   });
 
   if (subscribers.length === 0) return 0;
+  if (!isEmailEnabled()) return 0;
 
   let sent = 0;
 
@@ -156,7 +181,7 @@ export async function sendNewsletter(subject: string, content: string) {
       </div>
     `;
 
-    await resend.emails.send({
+    await getResendClient().emails.send({
       from: `IDEA Newsletter <${FROM_EMAIL}>`,
       to: subscriber.email,
       subject,

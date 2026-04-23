@@ -29,11 +29,22 @@ export default async function bannerRoutes(app: FastifyInstance) {
         description: "Retorna o banner ativo mais recente.",
         response: {
           200: BannerResponse,
+          404: {
+            type: "object",
+            properties: {
+              error: { type: "string" },
+            },
+          },
         },
       },
     },
-    async () => {
-      return bannerService.getActiveBanner();
+    async (_request, reply) => {
+      const banner = await bannerService.getActiveBanner();
+      if (!banner) {
+        return reply.code(404).send({ error: "Active banner not found" });
+      }
+
+      return banner;
     }
   );
 
