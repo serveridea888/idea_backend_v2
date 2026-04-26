@@ -19,7 +19,7 @@
     "@fastify/multipart": "^9.0.0",
     "@fastify/rate-limit": "^10.0.0",
     "@fastify/swagger": "^9.7.0",
-    "@prisma/client": "^6.3.0",
+    "@prisma/client": "^6.19.3",
     "@scalar/fastify-api-reference": "^1.44.26",
     "@supabase/supabase-js": "^2.49.0",
     "bcrypt": "^5.1.1",
@@ -33,7 +33,7 @@
     "@types/bcrypt": "^5.0.2",
     "@types/node": "^22.0.0",
     "@types/sanitize-html": "^2.13.0",
-    "prisma": "^6.3.0",
+    "prisma": "^6.19.3",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   },

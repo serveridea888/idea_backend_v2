@@ -1,5 +1,7 @@
 import { Resend } from "resend";
+import { ArticleStatus } from "@prisma/client";
 import prisma from "../lib/prisma";
+import { getEmailTemplateById } from "./emailTemplateService";
 
 let resendClient: Resend | null = null;
 
@@ -32,8 +34,104 @@ interface ArticleForNewsletter {
   authorName?: string | null;
 }
 
+interface SendNewsletterInput {
+  subject: string;
+  content: string;
+  html?: string;
+  templateId?: string | null;
+  articleId?: string | null;
+}
+
 function unsubscribeLink(subscriberId: string) {
   return `${FRONTEND_URL}/unsubscribe/${subscriberId}`;
+}
+
+function articleLink(slug: string) {
+  return `${FRONTEND_URL}/artigos/${slug}`;
+}
+
+function wrapNewsletterHtml(content: string, subscriberId: string) {
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <h2 style="color: #888; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">
+        IDEA Newsletter
+      </h2>
+      <div style="color: #444; font-size: 16px; line-height: 1.6;">
+        ${content}
+      </div>
+      <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+      <p style="color: #999; font-size: 12px;">
+        Você recebeu este e-mail porque está inscrito na IDEA Newsletter.
+        <a href="${unsubscribeLink(subscriberId)}" style="color: #999;">Cancelar inscrição</a>
+      </p>
+    </div>
+  `;
+}
+
+function buildArticleCard(article: ArticleForNewsletter) {
+  const url = articleLink(article.slug);
+
+  return `
+    <div style="margin-top: 32px; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; background: #ffffff;">
+      ${article.coverImageUrl ? `<img src="${article.coverImageUrl}" alt="${article.metaTitle}" style="display: block; width: 100%; max-height: 260px; object-fit: cover;" />` : ""}
+      <div style="padding: 24px;">
+        <p style="margin: 0 0 8px; color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em;">Artigo em destaque</p>
+        <h3 style="margin: 0 0 12px; color: #1a1a1a; font-size: 24px; line-height: 1.3;">${article.metaTitle}</h3>
+        ${article.metaDescription ? `<p style="margin: 0 0 20px; color: #444; font-size: 16px; line-height: 1.6;">${article.metaDescription}</p>` : ""}
+        <a href="${url}" style="display: inline-block; background: #1a1a1a; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none;">Leia completo</a>
+      </div>
+    </div>
+  `;
+}
+
+function renderTemplateContent(template: string, values: Record<string, string>) {
+  return template.replace(/{{\s*(\w+)\s*}}/g, (_, key: string) => values[key] ?? "");
+}
+
+function composeNewsletterHtml(
+  bodyContent: string,
+  subscriberId: string,
+  templateContent?: string | null,
+  articleCard?: string,
+  subject?: string,
+) {
+  if (!templateContent) {
+    return wrapNewsletterHtml(
+      `${bodyContent}${articleCard ? `<div>${articleCard}</div>` : ""}`,
+      subscriberId,
+    );
+  }
+
+  const renderedTemplate = renderTemplateContent(templateContent, {
+    content: bodyContent,
+    subject: subject ?? "",
+    articleCard: articleCard ?? "",
+    unsubscribeUrl: unsubscribeLink(subscriberId),
+  });
+
+  const shouldAppendArticleCard = Boolean(articleCard) && !/{{\s*articleCard\s*}}/.test(templateContent);
+  const templateWithArticle = shouldAppendArticleCard
+    ? `${renderedTemplate}${articleCard}`
+    : renderedTemplate;
+
+  if (/{{\s*unsubscribeUrl\s*}}/.test(templateContent)) {
+    return templateWithArticle;
+  }
+
+  return wrapNewsletterHtml(templateWithArticle, subscriberId);
+}
+
+async function getPublishedArticleForNewsletter(articleId: string) {
+  return prisma.article.findFirst({
+    where: { id: articleId, status: ArticleStatus.PUBLISHED },
+    select: {
+      metaTitle: true,
+      slug: true,
+      metaDescription: true,
+      coverImageUrl: true,
+      authorName: true,
+    },
+  });
 }
 
 export async function sendWelcomeEmail(email: string, subscriberId: string) {
@@ -73,7 +171,7 @@ export async function sendArticleNewsletter(article: ArticleForNewsletter) {
 
   if (subscribers.length === 0) return;
 
-  const articleUrl = `${FRONTEND_URL}/articles/${article.slug}`;
+  const articleUrl = articleLink(article.slug);
 
   for (const subscriber of subscribers) {
     const html = `
@@ -154,7 +252,18 @@ export async function sendNewsNewsletter(news: NewsForNewsletter) {
   }
 }
 
-export async function sendNewsletter(subject: string, content: string) {
+export async function sendNewsletter(input: SendNewsletterInput | string, legacyContent?: string) {
+  const payload: SendNewsletterInput =
+    typeof input === "string"
+      ? {
+          subject: input,
+          content: legacyContent ?? "",
+        }
+      : {
+          ...input,
+          html: input.html ?? input.content,
+        };
+
   const subscribers = await prisma.subscriber.findMany({
     select: { id: true, email: true },
   });
@@ -162,29 +271,44 @@ export async function sendNewsletter(subject: string, content: string) {
   if (subscribers.length === 0) return 0;
   if (!isEmailEnabled()) return 0;
 
+  const template = payload.templateId
+    ? await getEmailTemplateById(payload.templateId)
+    : null;
+
+  const article = payload.articleId
+    ? await getPublishedArticleForNewsletter(payload.articleId)
+    : null;
+
+  if (payload.templateId && !template) {
+    const error = new Error("Email template not found") as Error & { statusCode?: number };
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (payload.articleId && !article) {
+    const error = new Error("Published article not found") as Error & { statusCode?: number };
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const baseContent = payload.html ?? payload.content;
+  const articleCard = article ? buildArticleCard(article) : "";
+
   let sent = 0;
 
   for (const subscriber of subscribers) {
-    const html = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <h2 style="color: #888; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">
-          IDEA Newsletter
-        </h2>
-        <div style="color: #444; font-size: 16px; line-height: 1.6;">
-          ${content}
-        </div>
-        <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-        <p style="color: #999; font-size: 12px;">
-          Você recebeu este e-mail porque está inscrito na IDEA Newsletter.
-          <a href="${unsubscribeLink(subscriber.id)}" style="color: #999;">Cancelar inscrição</a>
-        </p>
-      </div>
-    `;
+    const html = composeNewsletterHtml(
+      baseContent,
+      subscriber.id,
+      template?.content,
+      articleCard,
+      payload.subject,
+    );
 
     await getResendClient().emails.send({
       from: `IDEA Newsletter <${FROM_EMAIL}>`,
       to: subscriber.email,
-      subject,
+      subject: payload.subject,
       html,
     });
 

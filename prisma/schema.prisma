@@ -116,6 +116,18 @@ model Subscriber {
   @@map("subscribers")
 }
 
+model EmailTemplate {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  description String?  @db.Text
+  subject     String?
+  content     String   @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("email_templates")
+}
+
 model About {
   id          String   @id @default(uuid()) @db.Uuid
   title       String
