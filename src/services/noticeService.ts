@@ -33,3 +33,7 @@ export async function updateNotice(id: string, data: UpdateNoticeInput) {
 export async function listNotices() {
   return prisma.notice.findMany({ orderBy: { createdAt: "desc" } });
 }
+
+export async function deleteNotice(id: string) {
+  return prisma.notice.delete({ where: { id } });
+}

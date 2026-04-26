@@ -146,4 +146,32 @@ export default async function noticeRoutes(app: FastifyInstance) {
       return noticeService.updateNotice(id, body);
     }
   );
+
+  app.delete(
+    "/notices/:id",
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags: ["Notices"],
+        summary: "Deletar aviso",
+        description: "Remove um aviso pelo ID. Requer autenticação.",
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+        },
+        response: {
+          204: { type: "null", description: "Aviso removido com sucesso" },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      await noticeService.deleteNotice(id);
+      return reply.code(204).send();
+    }
+  );
 }

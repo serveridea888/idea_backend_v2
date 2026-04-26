@@ -1,105 +1,151 @@
-# Newsletter — Gaps no Frontend
+# Integração Frontend — Newsletter
 
-> Documento de referência para integrar o sistema de newsletter (Resend) no frontend.
-> O backend já fornece todos os endpoints necessários.
+Documento de integração do frontend com o backend de newsletter.
 
----
+## Configuração validada no backend
 
-## Endpoints Disponíveis no Backend
+- Resend configurado com domínio amazonidea.com.br
+- Remetente usado pelo backend: newsletter@amazonidea.com.br
+- URL do frontend usada nos links dos e-mails: https://app.amazonidea.com.br
 
-| Método | Rota | Auth | Descrição |
-|--------|------|------|-----------|
-| `POST` | `/subscribers` | ❌ Público | Inscrever email na newsletter |
-| `POST` | `/subscribers/unsubscribe/:id` | ❌ Público | Cancelar inscrição via link do email |
-| `GET` | `/subscribers` | ✅ Admin | Listar assinantes (paginado) |
-| `DELETE` | `/subscribers/:id` | ✅ Admin | Remover assinante |
-| `POST` | `/newsletter/send` | ✅ Admin | Enviar newsletter manual |
+## Endpoints que o frontend precisa consumir
 
----
+| Método | Rota | Auth | Uso |
+| --- | --- | --- | --- |
+| POST | /auth/login | Não | Login do admin |
+| POST | /subscribers | Não | Inscrição na newsletter |
+| POST | /subscribers/unsubscribe/:id | Não | Cancelamento público via link do e-mail |
+| GET | /subscribers?page=1&limit=50 | Sim | Listagem de assinantes no admin |
+| DELETE | /subscribers/:id | Sim | Remover assinante no admin |
+| POST | /newsletter/send | Sim | Envio manual de newsletter |
 
-## 1. Página de Unsubscribe
+## Contrato para o frontend
 
-**Rota frontend:** `/unsubscribe/:subscriberId`
+### 1. Login do admin
 
-Os emails enviados pelo backend contêm um link de cancelamento no formato:
-```
-http://localhost:3000/unsubscribe/{subscriberId}
-```
+Request:
 
-> ✅ **Endpoint público já implementado no backend:** `POST /subscribers/unsubscribe/:id` (sem autenticação)
-
-### Request:
-```ts
-POST /subscribers/unsubscribe/{subscriberId}
-```
-
-### Response (200):
 ```json
-{ "message": "Inscrição cancelada com sucesso." }
-```
-
-### Response (404) — ID inválido:
-```json
-{ "error": "Assinante não encontrado." }
-```
-
-### O que implementar:
-- [ ] Criar página `/unsubscribe/[id]`
-- [ ] Ao acessar, exibir mensagem de confirmação: _"Deseja cancelar sua inscrição na newsletter?"_
-- [ ] Botão "Confirmar cancelamento" chama `POST /subscribers/unsubscribe/:id`
-- [ ] Mensagem de sucesso: _"Sua inscrição foi cancelada."_
-- [ ] Tratamento se o ID não existir (404): _"Inscrição não encontrada ou já cancelada."_
-
----
-
-## 2. Formulário de Inscrição (Subscribe)
-
-**Rota frontend:** Componente presente na home ou footer
-
-### Request:
-```ts
-POST /subscribers
-Content-Type: application/json
-
 {
-  "email": "usuario@email.com"
+  "email": "admin@amazonidea.com.br",
+  "password": "SUA_SENHA"
 }
 ```
 
-### Response (201):
+Endpoint:
+
+```text
+POST /auth/login
+```
+
+Response:
+
+```json
+{
+  "accessToken": "jwt",
+  "admin": {
+    "id": "uuid",
+    "email": "admin@amazonidea.com.br",
+    "name": "Admin"
+  }
+}
+```
+
+Usar o accessToken nas rotas protegidas com header Authorization: Bearer {token}.
+
+### 2. Inscrição na newsletter
+
+Endpoint:
+
+```text
+POST /subscribers
+```
+
+Request:
+
+```json
+{
+  "email": "usuario@exemplo.com"
+}
+```
+
+Response 201:
+
 ```json
 {
   "id": "uuid",
-  "email": "usuario@email.com",
+  "email": "usuario@exemplo.com",
   "createdAt": "2026-03-16T00:00:00.000Z"
 }
 ```
 
-### O que implementar:
-- [ ] Input de email + botão "Inscrever-se"
-- [ ] Validação de email no frontend (formato)
-- [ ] Estado de loading durante a request
-- [ ] Mensagem de sucesso: _"Inscrição realizada! Verifique seu email."_
-- [ ] Tratamento de erro (email inválido, falha de conexão)
-- [ ] Email já inscrito retorna 200 (upsert) — tratar como sucesso normalmente
+Implementação esperada no frontend:
 
----
+- Formulário com campo de e-mail
+- Estado de loading
+- Mensagem de sucesso após inscrição
+- Tratamento de erro de validação ou falha de rede
 
-## 3. Painel Admin — Lista de Assinantes
+### 3. Descadastro público
 
-**Rota frontend:** `/admin/subscribers` (ou equivalente no dashboard)
+O link enviado por e-mail aponta para esta rota visual do frontend:
 
-### Request:
-```ts
+```text
+/unsubscribe/:id
+```
+
+Quando o usuário abrir essa página, o frontend deve chamar:
+
+```text
+POST /subscribers/unsubscribe/:id
+```
+
+Response 200:
+
+```json
+{
+  "message": "Inscrição cancelada com sucesso."
+}
+```
+
+Response 404:
+
+```json
+{
+  "error": "Assinante não encontrado."
+}
+```
+
+Implementação esperada no frontend:
+
+- Página em /unsubscribe/:id
+- Tela de confirmação de cancelamento
+- Mensagem de sucesso ou erro após a chamada
+
+### 4. Lista de assinantes no admin
+
+Endpoint:
+
+```text
 GET /subscribers?page=1&limit=50
+```
+
+Header:
+
+```text
 Authorization: Bearer {token}
 ```
 
-### Response (200):
+Response 200:
+
 ```json
 {
   "data": [
-    { "id": "uuid", "email": "user@email.com", "createdAt": "..." }
+    {
+      "id": "uuid",
+      "email": "user@email.com",
+      "createdAt": "2026-03-16T00:00:00.000Z"
+    }
   ],
   "meta": {
     "total": 150,
@@ -110,70 +156,90 @@ Authorization: Bearer {token}
 }
 ```
 
-### O que implementar:
-- [ ] Tabela de assinantes com email e data de inscrição
-- [ ] Paginação
-- [ ] Botão de remover assinante (`DELETE /subscribers/:id`)
-- [ ] Confirmação antes de remover
-- [ ] Exibir total de inscritos
+Implementação esperada no frontend:
 
----
+- Tabela de assinantes
+- Paginação
+- Exibição do total de inscritos
+- Ação para remover assinante
 
-## 4. Painel Admin — Envio Manual de Newsletter
+### 5. Remoção de assinante no admin
 
-**Rota frontend:** `/admin/newsletter` (ou modal/seção no dashboard)
+Endpoint:
 
-### Request:
-```ts
-POST /newsletter/send
+```text
+DELETE /subscribers/:id
+```
+
+Header:
+
+```text
 Authorization: Bearer {token}
-Content-Type: application/json
+```
 
+Response 204 sem corpo.
+
+### 6. Envio manual de newsletter no admin
+
+Endpoint:
+
+```text
+POST /newsletter/send
+```
+
+Header:
+
+```text
+Authorization: Bearer {token}
+```
+
+Request:
+
+```json
 {
-  "subject": "Assunto do email",
-  "content": "<h1>Conteúdo HTML</h1><p>Texto da newsletter</p>"
+  "subject": "Assunto da newsletter",
+  "content": "<p>HTML do e-mail</p>"
 }
 ```
 
-### Response (200):
+Response 200:
+
 ```json
 {
   "sent": 150
 }
 ```
 
-### O que implementar:
-- [ ] Campo de assunto (subject)
-- [ ] Editor de conteúdo HTML (pode ser rich text editor como TipTap, ou textarea simples)
-- [ ] Botão "Enviar Newsletter"
-- [ ] Confirmação antes do envio: _"Enviar para X assinantes?"_ (buscar total via `GET /subscribers`)
-- [ ] Estado de loading durante envio
-- [ ] Mensagem de sucesso: _"Newsletter enviada para X assinantes"_
-- [ ] Tratamento de erro
+Implementação esperada no frontend:
 
----
+- Campo de assunto
+- Editor HTML ou textarea
+- Confirmação antes do envio
+- Loading durante envio
+- Mensagem final com quantidade enviada
 
-## 5. Notificação Automática (Sem ação no frontend)
+## Rotas do frontend que precisam existir
 
-Quando um artigo é publicado (`PUT /articles/:id` com `status: "PUBLISHED"`), o backend **automaticamente** envia uma newsletter para todos os assinantes. Não precisa de nenhuma implementação no frontend para isso funcionar.
+- /unsubscribe/:id
+- /articles/:slug
+- /news/:slug
 
----
+Essas rotas são usadas nos links dentro dos e-mails enviados pelo backend.
 
-## Prioridade de Implementação
-
-| # | Item | Prioridade |
-|---|------|-----------|
-| 1 | Formulário de subscribe | 🔴 Alta |
-| 2 | Página de unsubscribe | 🔴 Alta |
-| 3 | Lista de assinantes (admin) | 🟡 Média |
-| 4 | Envio manual de newsletter (admin) | 🟡 Média |
-
----
-
-## Variáveis de Ambiente do Frontend
+## Variável de ambiente esperada no frontend
 
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:3333
+NEXT_PUBLIC_API_URL=https://SEU_BACKEND
 ```
 
-> Todas as chamadas ao backend usam essa URL base.
+Exemplo de uso no frontend:
+
+```ts
+fetch(`${process.env.NEXT_PUBLIC_API_URL}/subscribers`, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({ email })
+})
+```

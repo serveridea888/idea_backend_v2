@@ -23,8 +23,42 @@ import translationRoutes from "./routes/translations";
 export async function buildApp() {
   const app = Fastify({ logger: true });
 
+  // Accept empty JSON bodies (common on DELETE with Content-Type set by some clients).
+  app.removeContentTypeParser("application/json");
+  app.addContentTypeParser(
+    /^application\/json(?:;.*)?$/,
+    { parseAs: "string" },
+    (request, body, done) => {
+      const rawBody = typeof body === "string" ? body : body.toString("utf8");
+      const payload = rawBody.trim();
+
+      if (payload.length === 0) {
+        done(null, {});
+        return;
+      }
+
+      try {
+        done(null, JSON.parse(payload));
+      } catch (error) {
+        done(error as Error, undefined);
+      }
+    },
+  );
+
+  const configuredOrigins = (process.env.ALLOWED_ORIGIN || "http://localhost:3000")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const allowedOrigins = Array.from(
+    new Set(
+      process.env.NODE_ENV === "production"
+        ? configuredOrigins
+        : [...configuredOrigins, "http://localhost:3000", "http://127.0.0.1:3000"],
+    ),
+  );
+
   await app.register(cors, {
-    origin: process.env.ALLOWED_ORIGIN || "http://localhost:3000",
+    origin: allowedOrigins,
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],

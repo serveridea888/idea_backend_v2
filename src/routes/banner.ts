@@ -161,4 +161,32 @@ export default async function bannerRoutes(app: FastifyInstance) {
       return bannerService.updateBanner(id, body);
     }
   );
+
+  app.delete(
+    "/banners/:id",
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags: ["Banners"],
+        summary: "Deletar banner",
+        description: "Remove um banner pelo ID. Requer autenticação.",
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+        },
+        response: {
+          204: { type: "null", description: "Banner removido com sucesso" },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      await bannerService.deleteBanner(id);
+      return reply.code(204).send();
+    }
+  );
 }

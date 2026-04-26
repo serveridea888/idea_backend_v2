@@ -37,3 +37,7 @@ export async function updateBanner(id: string, data: UpdateBannerInput) {
 export async function listBanners() {
   return prisma.banner.findMany({ orderBy: { createdAt: "desc" } });
 }
+
+export async function deleteBanner(id: string) {
+  return prisma.banner.delete({ where: { id } });
+}

@@ -43,6 +43,91 @@ interface ListArticlesParams {
   isFeatured?: boolean;
 }
 
+type ArticleListItem = Prisma.ArticleGetPayload<{
+  include: { tags: { include: { tag: true } } };
+}>;
+
+interface ListArticlesResult {
+  data: ArticleListItem[];
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+const LIST_ARTICLES_CACHE_TTL_MS = 5000;
+const listArticlesCache = new Map<
+  string,
+  { value: ListArticlesResult; createdAt: number }
+>();
+const listArticlesInFlight = new Map<string, Promise<ListArticlesResult>>();
+
+function isPoolSaturationError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  const message = error.message;
+  return (
+    message.includes("MaxClientsInSessionMode") ||
+    message.toLowerCase().includes("max clients reached")
+  );
+}
+
+function wait(ms: number) {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function getListArticlesCacheKey(params: ListArticlesParams) {
+  return JSON.stringify({
+    page: params.page ?? 1,
+    limit: params.limit ?? 10,
+    status: params.status ?? null,
+    tagSlug: params.tagSlug ?? null,
+    isFeatured: params.isFeatured ?? null,
+  });
+}
+
+async function fetchListArticlesFromDatabase(
+  where: Prisma.ArticleWhereInput,
+  page: number,
+  limit: number,
+  skip: number,
+): Promise<ListArticlesResult> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const [articles, total] = await prisma.$transaction([
+        prisma.article.findMany({
+          where,
+          skip,
+          take: limit,
+          orderBy: { createdAt: "desc" },
+          include: { tags: { include: { tag: true } } },
+        }),
+        prisma.article.count({ where }),
+      ]);
+
+      return {
+        data: articles,
+        meta: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
+        },
+      };
+    } catch (error) {
+      if (attempt === 2 || !isPoolSaturationError(error)) {
+        throw error;
+      }
+      await wait(120 * (attempt + 1));
+    }
+  }
+
+  throw new Error("Unable to list articles");
+}
+
 async function ensureUniqueSlug(baseSlug: string, excludeId?: string): Promise<string> {
   let slug = baseSlug;
   let counter = 1;
@@ -171,30 +256,40 @@ export async function getArticleBySlug(slug: string) {
 export async function listArticles(params: ListArticlesParams = {}) {
   const { page = 1, limit = 10, status, tagSlug, isFeatured } = params;
   const skip = (page - 1) * limit;
+  const cacheKey = getListArticlesCacheKey(params);
+  const now = Date.now();
+
+  const cached = listArticlesCache.get(cacheKey);
+  if (cached && now - cached.createdAt <= LIST_ARTICLES_CACHE_TTL_MS) {
+    return cached.value;
+  }
+
+  const inFlight = listArticlesInFlight.get(cacheKey);
+  if (inFlight) {
+    return inFlight;
+  }
 
   const where: Prisma.ArticleWhereInput = {};
   if (status) where.status = status;
   if (isFeatured !== undefined) where.isFeatured = isFeatured;
   if (tagSlug) where.tags = { some: { tag: { slug: tagSlug } } };
 
-  const [articles, total] = await Promise.all([
-    prisma.article.findMany({
-      where,
-      skip,
-      take: limit,
-      orderBy: { createdAt: "desc" },
-      include: { tags: { include: { tag: true } } },
-    }),
-    prisma.article.count({ where }),
-  ]);
+  const requestPromise = fetchListArticlesFromDatabase(where, page, limit, skip)
+    .then((result) => {
+      listArticlesCache.set(cacheKey, { value: result, createdAt: Date.now() });
+      return result;
+    })
+    .catch((error) => {
+      const stale = listArticlesCache.get(cacheKey);
+      if (stale) {
+        return stale.value;
+      }
+      throw error;
+    })
+    .finally(() => {
+      listArticlesInFlight.delete(cacheKey);
+    });
 
-  return {
-    data: articles,
-    meta: {
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    },
-  };
+  listArticlesInFlight.set(cacheKey, requestPromise);
+  return requestPromise;
 }
