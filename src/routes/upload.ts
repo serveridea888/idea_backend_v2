@@ -6,7 +6,6 @@ const ALLOWED_TYPES = [
   "image/jpeg",
   "image/png",
   "image/webp",
-  "image/svg+xml",
   "image/gif",
 ];
 
@@ -15,10 +14,16 @@ export default async function uploadRoutes(app: FastifyInstance) {
     "/upload",
     {
       preHandler: [authenticate],
+      config: {
+        rateLimit: {
+          max: 30,
+          timeWindow: "1 minute",
+        },
+      },
       schema: {
         tags: ["Upload"],
         summary: "Upload de imagem",
-        description: "Faz upload de uma imagem para o storage. Tipos aceitos: JPEG, PNG, WebP, SVG, GIF. Máximo 20 MB. Requer autenticação.",
+        description: "Faz upload de uma imagem para o storage. Tipos aceitos: JPEG, PNG, WebP, GIF. Máximo 20 MB. Requer autenticação.",
         security: [{ bearerAuth: [] }],
         consumes: ["multipart/form-data"],
         querystring: {
