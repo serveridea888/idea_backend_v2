@@ -1,0 +1,25 @@
+name: Daily Keepalive
+
+on:
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+jobs:
+  ping-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate configuration
+        env:
+          KEEPALIVE_URL: ${{ secrets.BACKEND_KEEPALIVE_URL }}
+        run: |
+          if [ -z "$KEEPALIVE_URL" ]; then
+            echo "BACKEND_KEEPALIVE_URL secret is not configured."
+            exit 1
+          fi
+
+      - name: Ping backend database healthcheck
+        env:
+          KEEPALIVE_URL: ${{ secrets.BACKEND_KEEPALIVE_URL }}
+        run: |
+          curl --fail --silent --show-error "$KEEPALIVE_URL"

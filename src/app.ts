@@ -19,6 +19,7 @@ import newsRoutes from "./routes/news";
 import searchRoutes from "./routes/search";
 import uploadRoutes from "./routes/upload";
 import translationRoutes from "./routes/translations";
+import healthRoutes from "./routes/health";
 
 export async function buildApp() {
   const app = Fastify({ logger: true });
@@ -135,6 +136,7 @@ export async function buildApp() {
   });
 
   await app.register(authRoutes);
+  await app.register(healthRoutes);
   await app.register(articleRoutes);
   await app.register(newsRoutes);
   await app.register(tagRoutes);
