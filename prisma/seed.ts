@@ -78,9 +78,9 @@ const defaultAbout = {
   description:
     "A IDEA é uma iniciativa socioambiental dedicada a regenerar ecossistemas, fortalecer comunidades e ampliar o acesso à educação ambiental. Atuamos conectando pessoas, conhecimento e ação prática para transformar desafios climáticos em impacto positivo e duradouro.",
   mission:
-    "Promover a regeneração ambiental por meio de projetos locais, educação transformadora e mobilização cidadã, criando soluções sustentáveis que gerem benefício real para a natureza e para as pessoas.",
+    "Compartilhar o conhecimento científico produzido sobre Amazônia, trazendo perspectivas locais e internacionais.",
   vision:
-    "Ser referência em inovação socioambiental no Brasil, inspirando uma cultura de cuidado com o planeta e contribuindo para cidades e territórios mais resilientes, justos e vivos.",
+    "Aumentar o debate sobre Amazônia sob a lógica de inclusão de perspectivas locais, visando um desenvolvimento econômico sustentável.",
   imageUrl: null,
   imageAlt: "Equipe da IDEA em ação de restauração ambiental",
   stats: [],
