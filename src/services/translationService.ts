@@ -91,20 +91,26 @@ async function translate(source: Source, locale: string) {
   const configured = client();
   if (!configured) throw new Error("Google Cloud Translation is not configured");
   console.info("Translation provider authentication started", { locale });
-  const authClient = await withProviderTimeout(configured.auth.getClient(), "authentication");
+  const accessToken = await withProviderTimeout(configured.auth.getAccessToken(), "authentication");
+  if (!accessToken) throw new Error("Google Cloud Translation authentication returned no token");
   console.info("Translation provider request started", { locale });
-  const response = await withProviderTimeout(authClient.request<{ translations?: Array<{ translatedText?: string }> }>({
-    url: `https://translation.googleapis.com/v3/projects/${configured.projectId}/locations/global:translateText`,
-    method: "POST",
-    timeout: PROVIDER_TIMEOUT_MS,
-    data: {
-      sourceLanguageCode: "pt",
-      targetLanguageCode: locale,
-      mimeType: "text/html",
-      contents: [source.metaTitle, source.metaDescription ?? "", source.content],
+  const response = await fetch(
+    `https://translation.googleapis.com/v3/projects/${configured.projectId}/locations/global:translateText`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceLanguageCode: "pt",
+        targetLanguageCode: locale,
+        mimeType: "text/html",
+        contents: [source.metaTitle, source.metaDescription ?? "", source.content],
+      }),
+      signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     },
-  }), "request");
-  const values = response.data.translations?.map((item) => item.translatedText ?? "") ?? [];
+  );
+  if (!response.ok) throw new Error(`Google Cloud Translation request failed (${response.status}): ${(await response.text()).slice(0, 300)}`);
+  const payload = await response.json() as { translations?: Array<{ translatedText?: string }> };
+  const values = payload.translations?.map((item) => item.translatedText ?? "") ?? [];
   if (values.length !== 3) throw new Error("Unexpected translation response");
   return { metaTitle: values[0], metaDescription: source.metaDescription ? values[1] : null, content: values[2] };
 }
