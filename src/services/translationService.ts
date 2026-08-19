@@ -7,7 +7,7 @@ import prisma from "../lib/prisma";
 
 export const TRANSLATION_LOCALES = ["en", "zh-CN"] as const;
 const MAX_ATTEMPTS = Number(process.env.TRANSLATION_MAX_ATTEMPTS ?? 3);
-const STALE_PROCESSING_MS = Number(process.env.TRANSLATION_STALE_MS ?? 10 * 60_000);
+const STALE_PROCESSING_MS = Number(process.env.TRANSLATION_STALE_MS ?? 60_000);
 const POLL_MS = Number(process.env.TRANSLATION_POLL_MS ?? 5_000);
 
 type Source = { metaTitle: string; metaDescription: string | null; content: string };
@@ -78,7 +78,7 @@ async function translate(source: Source, locale: string) {
   const [response] = await configured.client.translateText({
     parent, sourceLanguageCode: "pt", targetLanguageCode: locale,
     mimeType: "text/html", contents: [source.metaTitle, source.metaDescription ?? "", source.content],
-  });
+  }, { timeout: 30_000 });
   const values = response.translations?.map((item) => item.translatedText ?? "") ?? [];
   if (values.length !== 3) throw new Error("Unexpected translation response");
   return { metaTitle: values[0], metaDescription: source.metaDescription ? values[1] : null, content: values[2] };
