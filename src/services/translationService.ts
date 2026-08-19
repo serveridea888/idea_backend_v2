@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { v3 } from "@google-cloud/translate";
+import { GoogleAuth } from "google-auth-library";
 import { TranslationStatus } from "@prisma/client";
 
 import prisma from "../lib/prisma";
@@ -69,24 +69,32 @@ function client() {
   const credentials = process.env.GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON
     ? JSON.parse(process.env.GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON)
     : undefined;
-  // Railway's outbound network is reliable over HTTPS, while long-lived gRPC
-  // streams can remain open without a response. Use the REST fallback.
-  return { projectId, client: new v3.TranslationServiceClient({ projectId, credentials, fallback: true }) };
+  return {
+    projectId,
+    auth: new GoogleAuth({
+      projectId,
+      credentials,
+      scopes: ["https://www.googleapis.com/auth/cloud-translation"],
+    }),
+  };
 }
 
 async function translate(source: Source, locale: string) {
   const configured = client();
   if (!configured) throw new Error("Google Cloud Translation is not configured");
-  const parent = `projects/${configured.projectId}/locations/global`;
-  const request = configured.client.translateText({
-    parent, sourceLanguageCode: "pt", targetLanguageCode: locale,
-    mimeType: "text/html", contents: [source.metaTitle, source.metaDescription ?? "", source.content],
-  }, { timeout: 30_000 });
-  const [response] = await Promise.race([
-    request,
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Google Cloud Translation request timed out")), PROVIDER_TIMEOUT_MS)),
-  ]);
-  const values = response.translations?.map((item) => item.translatedText ?? "") ?? [];
+  const authClient = await configured.auth.getClient();
+  const response = await authClient.request<{ translations?: Array<{ translatedText?: string }> }>({
+    url: `https://translation.googleapis.com/v3/projects/${configured.projectId}/locations/global:translateText`,
+    method: "POST",
+    timeout: PROVIDER_TIMEOUT_MS,
+    data: {
+      sourceLanguageCode: "pt",
+      targetLanguageCode: locale,
+      mimeType: "text/html",
+      contents: [source.metaTitle, source.metaDescription ?? "", source.content],
+    },
+  });
+  const values = response.data.translations?.map((item) => item.translatedText ?? "") ?? [];
   if (values.length !== 3) throw new Error("Unexpected translation response");
   return { metaTitle: values[0], metaDescription: source.metaDescription ? values[1] : null, content: values[2] };
 }
