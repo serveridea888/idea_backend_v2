@@ -13,6 +13,13 @@ const PROVIDER_TIMEOUT_MS = Number(process.env.TRANSLATION_PROVIDER_TIMEOUT_MS ?
 
 type Source = { metaTitle: string; metaDescription: string | null; content: string };
 
+function withProviderTimeout<T>(promise: Promise<T>, stage: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`Google Cloud Translation ${stage} timed out`)), PROVIDER_TIMEOUT_MS)),
+  ]);
+}
+
 export function translationHash(source: Source) {
   return crypto.createHash("sha256").update(JSON.stringify(source)).digest("hex");
 }
@@ -82,8 +89,8 @@ function client() {
 async function translate(source: Source, locale: string) {
   const configured = client();
   if (!configured) throw new Error("Google Cloud Translation is not configured");
-  const authClient = await configured.auth.getClient();
-  const response = await authClient.request<{ translations?: Array<{ translatedText?: string }> }>({
+  const authClient = await withProviderTimeout(configured.auth.getClient(), "authentication");
+  const response = await withProviderTimeout(authClient.request<{ translations?: Array<{ translatedText?: string }> }>({
     url: `https://translation.googleapis.com/v3/projects/${configured.projectId}/locations/global:translateText`,
     method: "POST",
     timeout: PROVIDER_TIMEOUT_MS,
@@ -93,7 +100,7 @@ async function translate(source: Source, locale: string) {
       mimeType: "text/html",
       contents: [source.metaTitle, source.metaDescription ?? "", source.content],
     },
-  });
+  }), "request");
   const values = response.data.translations?.map((item) => item.translatedText ?? "") ?? [];
   if (values.length !== 3) throw new Error("Unexpected translation response");
   return { metaTitle: values[0], metaDescription: source.metaDescription ? values[1] : null, content: values[2] };
