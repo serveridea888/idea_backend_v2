@@ -19,31 +19,37 @@ export function translationHash(source: Source) {
 export async function scheduleArticleTranslations(article: Source & { id: string; status: string }) {
   if (article.status !== "PUBLISHED") return;
   const sourceHash = translationHash(article);
-  await Promise.all(TRANSLATION_LOCALES.map((locale) => prisma.articleTranslation.upsert({
-    where: { articleId_locale: { articleId: article.id, locale } },
-    create: { articleId: article.id, locale, sourceHash, status: TranslationStatus.PENDING },
-    update: { sourceHash, status: TranslationStatus.PENDING, attempts: 0, lastError: null, processingAt: null, completedAt: null },
-  })));
+  await Promise.all(TRANSLATION_LOCALES.map(async (locale) => {
+    const existing = await prisma.articleTranslation.findUnique({ where: { articleId_locale: { articleId: article.id, locale } } });
+    if (!existing) {
+      await prisma.articleTranslation.create({ data: { articleId: article.id, locale, sourceHash, status: TranslationStatus.PENDING } });
+    } else if (existing.sourceHash !== sourceHash) {
+      await prisma.articleTranslation.update({ where: { id: existing.id }, data: { sourceHash, status: TranslationStatus.PENDING, attempts: 0, lastError: null, processingAt: null, completedAt: null } });
+    }
+  }));
 }
 
 export async function scheduleNewsTranslations(news: Source & { id: string; status: string }) {
   if (news.status !== "PUBLISHED") return;
   const sourceHash = translationHash(news);
-  await Promise.all(TRANSLATION_LOCALES.map((locale) => prisma.newsTranslation.upsert({
-    where: { newsId_locale: { newsId: news.id, locale } },
-    create: { newsId: news.id, locale, sourceHash, status: TranslationStatus.PENDING },
-    update: { sourceHash, status: TranslationStatus.PENDING, attempts: 0, lastError: null, processingAt: null, completedAt: null },
-  })));
+  await Promise.all(TRANSLATION_LOCALES.map(async (locale) => {
+    const existing = await prisma.newsTranslation.findUnique({ where: { newsId_locale: { newsId: news.id, locale } } });
+    if (!existing) {
+      await prisma.newsTranslation.create({ data: { newsId: news.id, locale, sourceHash, status: TranslationStatus.PENDING } });
+    } else if (existing.sourceHash !== sourceHash) {
+      await prisma.newsTranslation.update({ where: { id: existing.id }, data: { sourceHash, status: TranslationStatus.PENDING, attempts: 0, lastError: null, processingAt: null, completedAt: null } });
+    }
+  }));
 }
 
 async function scheduleLegacyContentTranslations() {
   const [articles, news] = await Promise.all([
     prisma.article.findMany({
-      where: { status: "PUBLISHED", translations: { none: {} } },
+      where: { status: "PUBLISHED" },
       select: { id: true, status: true, metaTitle: true, metaDescription: true, content: true },
     }),
     prisma.news.findMany({
-      where: { status: "PUBLISHED", translations: { none: {} } },
+      where: { status: "PUBLISHED" },
       select: { id: true, status: true, metaTitle: true, metaDescription: true, content: true },
     }),
   ]);
