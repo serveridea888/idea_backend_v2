@@ -3,6 +3,7 @@ import { ArticleStatus, Prisma } from "@prisma/client";
 import { sanitize } from "./sanitizeService";
 import { generateSlug } from "../utils/slug";
 import { sendArticleNewsletter } from "./emailService";
+import { scheduleArticleTranslations } from "./translationService";
 
 interface CreateArticleInput {
   metaTitle: string;
@@ -41,6 +42,7 @@ interface ListArticlesParams {
   status?: ArticleStatus;
   tagSlug?: string;
   isFeatured?: boolean;
+  locale?: string;
 }
 
 type ArticleListItem = Prisma.ArticleGetPayload<{
@@ -86,6 +88,7 @@ function getListArticlesCacheKey(params: ListArticlesParams) {
     status: params.status ?? null,
     tagSlug: params.tagSlug ?? null,
     isFeatured: params.isFeatured ?? null,
+    locale: params.locale ?? null,
   });
 }
 
@@ -94,6 +97,7 @@ async function fetchListArticlesFromDatabase(
   page: number,
   limit: number,
   skip: number,
+  locale?: string,
 ): Promise<ListArticlesResult> {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -103,13 +107,13 @@ async function fetchListArticlesFromDatabase(
           skip,
           take: limit,
           orderBy: { createdAt: "desc" },
-          include: { tags: { include: { tag: true } } },
+          include: { tags: { include: { tag: true } }, translations: locale && locale !== "pt-BR" ? { where: { locale } } : false },
         }),
         prisma.article.count({ where }),
       ]);
 
       return {
-        data: articles,
+        data: articles.map((article) => localizeArticle(article, locale)),
         meta: {
           total,
           page,
@@ -126,6 +130,14 @@ async function fetchListArticlesFromDatabase(
   }
 
   throw new Error("Unable to list articles");
+}
+
+function localizeArticle(article: any, locale?: string) {
+  if (!locale || locale === "pt-BR") return { ...article, translationStatus: "READY", translationLocale: "pt-BR", isFallback: false };
+  const translation = article.translations?.[0];
+  const isReady = translation?.status === "READY";
+  const { translations, ...base } = article;
+  return isReady ? { ...base, metaTitle: translation.metaTitle ?? base.metaTitle, metaDescription: translation.metaDescription, content: translation.content ?? base.content, translationStatus: translation.status, translationLocale: locale, isFallback: false } : { ...base, translationStatus: translation?.status ?? "PENDING", translationLocale: locale, isFallback: true };
 }
 
 async function ensureUniqueSlug(baseSlug: string, excludeId?: string): Promise<string> {
@@ -155,7 +167,7 @@ export async function createArticle(data: CreateArticleInput) {
         ? new Date(data.publishedAt)
         : undefined;
 
-  return prisma.article.create({
+  const article = await prisma.article.create({
     data: {
       slug,
       metaTitle: data.metaTitle,
@@ -175,6 +187,8 @@ export async function createArticle(data: CreateArticleInput) {
     },
     include: { tags: { include: { tag: true } } },
   });
+  await scheduleArticleTranslations(article);
+  return article;
 }
 
 export async function updateArticle(id: string, data: UpdateArticleInput) {
@@ -232,6 +246,10 @@ export async function updateArticle(id: string, data: UpdateArticleInput) {
     );
   }
 
+  if (updated.status === "PUBLISHED" && (isBeingPublished || data.metaTitle !== undefined || data.metaDescription !== undefined || data.content !== undefined)) {
+    await scheduleArticleTranslations(updated);
+  }
+
   return updated;
 }
 
@@ -239,22 +257,24 @@ export async function deleteArticle(id: string) {
   return prisma.article.delete({ where: { id } });
 }
 
-export async function getArticleById(id: string) {
-  return prisma.article.findUnique({
+export async function getArticleById(id: string, locale?: string) {
+  const article = await prisma.article.findUnique({
     where: { id },
-    include: { tags: { include: { tag: true } } },
+    include: { tags: { include: { tag: true } }, translations: locale && locale !== "pt-BR" ? { where: { locale } } : false },
   });
+  return article ? localizeArticle(article, locale) : null;
 }
 
-export async function getArticleBySlug(slug: string) {
-  return prisma.article.findUnique({
+export async function getArticleBySlug(slug: string, locale?: string) {
+  const article = await prisma.article.findUnique({
     where: { slug },
-    include: { tags: { include: { tag: true } } },
+    include: { tags: { include: { tag: true } }, translations: locale && locale !== "pt-BR" ? { where: { locale } } : false },
   });
+  return article ? localizeArticle(article, locale) : null;
 }
 
 export async function listArticles(params: ListArticlesParams = {}) {
-  const { page = 1, limit = 10, status, tagSlug, isFeatured } = params;
+  const { page = 1, limit = 10, status, tagSlug, isFeatured, locale } = params;
   const skip = (page - 1) * limit;
   const cacheKey = getListArticlesCacheKey(params);
   const now = Date.now();
@@ -274,7 +294,7 @@ export async function listArticles(params: ListArticlesParams = {}) {
   if (isFeatured !== undefined) where.isFeatured = isFeatured;
   if (tagSlug) where.tags = { some: { tag: { slug: tagSlug } } };
 
-  const requestPromise = fetchListArticlesFromDatabase(where, page, limit, skip)
+  const requestPromise = fetchListArticlesFromDatabase(where, page, limit, skip, locale)
     .then((result) => {
       listArticlesCache.set(cacheKey, { value: result, createdAt: Date.now() });
       return result;

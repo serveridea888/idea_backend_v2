@@ -3,6 +3,7 @@ import { ArticleStatus, Prisma } from "@prisma/client";
 import { sanitize } from "./sanitizeService";
 import { generateSlug } from "../utils/slug";
 import { sendNewsNewsletter } from "./emailService";
+import { scheduleNewsTranslations } from "./translationService";
 
 interface CreateNewsInput {
   metaTitle: string;
@@ -70,7 +71,7 @@ export async function createNews(data: CreateNewsInput) {
         ? new Date(data.publishedAt)
         : undefined;
 
-  return prisma.news.create({
+  const news = await prisma.news.create({
     data: {
       slug,
       metaTitle: data.metaTitle,
@@ -90,6 +91,8 @@ export async function createNews(data: CreateNewsInput) {
     },
     include: { tags: { include: { tag: true } } },
   });
+  await scheduleNewsTranslations(news);
+  return news;
 }
 
 export async function updateNews(id: string, data: UpdateNewsInput) {
@@ -145,6 +148,10 @@ export async function updateNews(id: string, data: UpdateNewsInput) {
     sendNewsNewsletter(updated).catch((err) =>
       console.error("Falha ao enviar newsletter da notícia:", err)
     );
+  }
+
+  if (updated.status === "PUBLISHED" && (isBeingPublished || data.metaTitle !== undefined || data.metaDescription !== undefined || data.content !== undefined)) {
+    await scheduleNewsTranslations(updated);
   }
 
   return updated;

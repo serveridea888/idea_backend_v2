@@ -20,6 +20,7 @@ import searchRoutes from "./routes/search";
 import uploadRoutes from "./routes/upload";
 import translationRoutes from "./routes/translations";
 import healthRoutes from "./routes/health";
+import { startTranslationWorker } from "./services/translationService";
 
 export async function buildApp() {
   const app = Fastify({ logger: true });
@@ -148,6 +149,7 @@ export async function buildApp() {
   await app.register(searchRoutes);
   await app.register(uploadRoutes);
   await app.register(translationRoutes);
+  startTranslationWorker();
 
   return app;
 }
