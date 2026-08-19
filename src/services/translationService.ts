@@ -80,7 +80,7 @@ async function translate(source: Source, locale: string) {
 
 let running = false;
 async function processArticle() {
-  const job = await prisma.articleTranslation.findFirst({ where: { status: TranslationStatus.PENDING, attempts: { lt: MAX_ATTEMPTS } }, include: { article: true }, orderBy: { updatedAt: "asc" } });
+  const job = await prisma.articleTranslation.findFirst({ where: { status: TranslationStatus.PENDING }, include: { article: true }, orderBy: { updatedAt: "asc" } });
   if (!job) return false;
   const claimed = await prisma.articleTranslation.updateMany({ where: { id: job.id, status: TranslationStatus.PENDING }, data: { status: TranslationStatus.PROCESSING, processingAt: new Date(), attempts: { increment: 1 } } });
   if (!claimed.count) return true;
@@ -89,15 +89,17 @@ async function processArticle() {
     if (translationHash(source) !== job.sourceHash) { await scheduleArticleTranslations(job.article); return true; }
     const result = await translate(source, job.locale);
     await prisma.articleTranslation.update({ where: { id: job.id }, data: { ...result, status: TranslationStatus.READY, completedAt: new Date(), processingAt: null, lastError: null } });
+    console.info("Translation ready", { contentType: "article", contentId: job.articleId, locale: job.locale });
   } catch (error) {
     const lastError = error instanceof Error ? error.message.slice(0, 500) : "Translation failed";
     await prisma.articleTranslation.update({ where: { id: job.id }, data: { status: job.attempts + 1 >= MAX_ATTEMPTS ? TranslationStatus.FAILED : TranslationStatus.PENDING, processingAt: null, lastError } });
+    console.error("Translation failed", { contentType: "article", contentId: job.articleId, locale: job.locale, attempts: job.attempts + 1, error: lastError });
   }
   return true;
 }
 
 async function processNews() {
-  const job = await prisma.newsTranslation.findFirst({ where: { status: TranslationStatus.PENDING, attempts: { lt: MAX_ATTEMPTS } }, include: { news: true }, orderBy: { updatedAt: "asc" } });
+  const job = await prisma.newsTranslation.findFirst({ where: { status: TranslationStatus.PENDING }, include: { news: true }, orderBy: { updatedAt: "asc" } });
   if (!job) return false;
   const claimed = await prisma.newsTranslation.updateMany({ where: { id: job.id, status: TranslationStatus.PENDING }, data: { status: TranslationStatus.PROCESSING, processingAt: new Date(), attempts: { increment: 1 } } });
   if (!claimed.count) return true;
@@ -106,9 +108,11 @@ async function processNews() {
     if (translationHash(source) !== job.sourceHash) { await scheduleNewsTranslations(job.news); return true; }
     const result = await translate(source, job.locale);
     await prisma.newsTranslation.update({ where: { id: job.id }, data: { ...result, status: TranslationStatus.READY, completedAt: new Date(), processingAt: null, lastError: null } });
+    console.info("Translation ready", { contentType: "news", contentId: job.newsId, locale: job.locale });
   } catch (error) {
     const lastError = error instanceof Error ? error.message.slice(0, 500) : "Translation failed";
     await prisma.newsTranslation.update({ where: { id: job.id }, data: { status: job.attempts + 1 >= MAX_ATTEMPTS ? TranslationStatus.FAILED : TranslationStatus.PENDING, processingAt: null, lastError } });
+    console.error("Translation failed", { contentType: "news", contentId: job.newsId, locale: job.locale, attempts: job.attempts + 1, error: lastError });
   }
   return true;
 }
