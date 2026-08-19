@@ -69,7 +69,9 @@ function client() {
   const credentials = process.env.GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON
     ? JSON.parse(process.env.GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON)
     : undefined;
-  return { projectId, client: new v3.TranslationServiceClient({ projectId, credentials }) };
+  // Railway's outbound network is reliable over HTTPS, while long-lived gRPC
+  // streams can remain open without a response. Use the REST fallback.
+  return { projectId, client: new v3.TranslationServiceClient({ projectId, credentials, fallback: true }) };
 }
 
 async function translate(source: Source, locale: string) {
