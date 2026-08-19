@@ -21,7 +21,8 @@ function withProviderTimeout<T>(promise: Promise<T>, stage: string): Promise<T> 
 }
 
 export function translationHash(source: Source) {
-  return crypto.createHash("sha256").update(JSON.stringify(source)).digest("hex");
+  const { metaTitle, metaDescription, content } = source;
+  return crypto.createHash("sha256").update(JSON.stringify({ metaTitle, metaDescription, content })).digest("hex");
 }
 
 export async function scheduleArticleTranslations(article: Source & { id: string; status: string }) {
