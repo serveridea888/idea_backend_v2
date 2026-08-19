@@ -89,7 +89,9 @@ function client() {
 async function translate(source: Source, locale: string) {
   const configured = client();
   if (!configured) throw new Error("Google Cloud Translation is not configured");
+  console.info("Translation provider authentication started", { locale });
   const authClient = await withProviderTimeout(configured.auth.getClient(), "authentication");
+  console.info("Translation provider request started", { locale });
   const response = await withProviderTimeout(authClient.request<{ translations?: Array<{ translatedText?: string }> }>({
     url: `https://translation.googleapis.com/v3/projects/${configured.projectId}/locations/global:translateText`,
     method: "POST",
@@ -112,6 +114,7 @@ async function processArticle() {
   if (!job) return false;
   const claimed = await prisma.articleTranslation.updateMany({ where: { id: job.id, status: TranslationStatus.PENDING }, data: { status: TranslationStatus.PROCESSING, processingAt: new Date(), attempts: { increment: 1 } } });
   if (!claimed.count) return true;
+  console.info("Translation processing", { contentType: "article", contentId: job.articleId, locale: job.locale });
   try {
     const source = { metaTitle: job.article.metaTitle, metaDescription: job.article.metaDescription, content: job.article.content };
     if (translationHash(source) !== job.sourceHash) { await scheduleArticleTranslations(job.article); return true; }
@@ -131,6 +134,7 @@ async function processNews() {
   if (!job) return false;
   const claimed = await prisma.newsTranslation.updateMany({ where: { id: job.id, status: TranslationStatus.PENDING }, data: { status: TranslationStatus.PROCESSING, processingAt: new Date(), attempts: { increment: 1 } } });
   if (!claimed.count) return true;
+  console.info("Translation processing", { contentType: "news", contentId: job.newsId, locale: job.locale });
   try {
     const source = { metaTitle: job.news.metaTitle, metaDescription: job.news.metaDescription, content: job.news.content };
     if (translationHash(source) !== job.sourceHash) { await scheduleNewsTranslations(job.news); return true; }
