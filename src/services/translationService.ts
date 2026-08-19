@@ -32,7 +32,7 @@ export async function scheduleArticleTranslations(article: Source & { id: string
     const existing = await prisma.articleTranslation.findUnique({ where: { articleId_locale: { articleId: article.id, locale } } });
     if (!existing) {
       await prisma.articleTranslation.create({ data: { articleId: article.id, locale, sourceHash, status: TranslationStatus.PENDING } });
-    } else if (existing.sourceHash !== sourceHash) {
+    } else if (existing.sourceHash !== sourceHash || (existing.status === TranslationStatus.FAILED && existing.lastError === "Google Cloud Translation is not configured")) {
       await prisma.articleTranslation.update({ where: { id: existing.id }, data: { sourceHash, status: TranslationStatus.PENDING, attempts: 0, lastError: null, processingAt: null, completedAt: null } });
     }
   }));
@@ -45,7 +45,7 @@ export async function scheduleNewsTranslations(news: Source & { id: string; stat
     const existing = await prisma.newsTranslation.findUnique({ where: { newsId_locale: { newsId: news.id, locale } } });
     if (!existing) {
       await prisma.newsTranslation.create({ data: { newsId: news.id, locale, sourceHash, status: TranslationStatus.PENDING } });
-    } else if (existing.sourceHash !== sourceHash) {
+    } else if (existing.sourceHash !== sourceHash || (existing.status === TranslationStatus.FAILED && existing.lastError === "Google Cloud Translation is not configured")) {
       await prisma.newsTranslation.update({ where: { id: existing.id }, data: { sourceHash, status: TranslationStatus.PENDING, attempts: 0, lastError: null, processingAt: null, completedAt: null } });
     }
   }));
