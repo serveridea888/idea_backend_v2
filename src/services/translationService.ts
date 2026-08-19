@@ -113,19 +113,22 @@ async function processNews() {
   return true;
 }
 
+async function processTranslationQueue() {
+  if (running) return;
+  running = true;
+  try {
+    await prisma.articleTranslation.updateMany({ where: { status: TranslationStatus.PROCESSING, processingAt: { lt: new Date(Date.now() - STALE_PROCESSING_MS) } }, data: { status: TranslationStatus.PENDING, processingAt: null } });
+    await prisma.newsTranslation.updateMany({ where: { status: TranslationStatus.PROCESSING, processingAt: { lt: new Date(Date.now() - STALE_PROCESSING_MS) } }, data: { status: TranslationStatus.PENDING, processingAt: null } });
+    await processArticle() || await processNews();
+  } catch (error) { console.error("Translation worker failure", error instanceof Error ? error.message : error); }
+  finally { running = false; }
+}
+
 export function startTranslationWorker() {
   if (process.env.TRANSLATION_WORKER_ENABLED === "false") return;
   void scheduleLegacyContentTranslations()
     .then(({ articles, news }) => console.info("Translation backfill queued", { articles, news }))
+    .then(() => processTranslationQueue())
     .catch((error) => console.error("Translation backfill failure", error instanceof Error ? error.message : error));
-  setInterval(async () => {
-    if (running) return;
-    running = true;
-    try {
-      await prisma.articleTranslation.updateMany({ where: { status: TranslationStatus.PROCESSING, processingAt: { lt: new Date(Date.now() - STALE_PROCESSING_MS) } }, data: { status: TranslationStatus.PENDING, processingAt: null } });
-      await prisma.newsTranslation.updateMany({ where: { status: TranslationStatus.PROCESSING, processingAt: { lt: new Date(Date.now() - STALE_PROCESSING_MS) } }, data: { status: TranslationStatus.PENDING, processingAt: null } });
-      await processArticle() || await processNews();
-    } catch (error) { console.error("Translation worker failure", error instanceof Error ? error.message : error); }
-    finally { running = false; }
-  }, POLL_MS).unref();
+  setInterval(() => { void processTranslationQueue(); }, POLL_MS).unref();
 }
