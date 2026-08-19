@@ -36,6 +36,26 @@ export async function scheduleNewsTranslations(news: Source & { id: string; stat
   })));
 }
 
+async function scheduleLegacyContentTranslations() {
+  const [articles, news] = await Promise.all([
+    prisma.article.findMany({
+      where: { status: "PUBLISHED", translations: { none: {} } },
+      select: { id: true, status: true, metaTitle: true, metaDescription: true, content: true },
+    }),
+    prisma.news.findMany({
+      where: { status: "PUBLISHED", translations: { none: {} } },
+      select: { id: true, status: true, metaTitle: true, metaDescription: true, content: true },
+    }),
+  ]);
+
+  await Promise.all([
+    ...articles.map(scheduleArticleTranslations),
+    ...news.map(scheduleNewsTranslations),
+  ]);
+
+  return { articles: articles.length, news: news.length };
+}
+
 function client() {
   const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID;
   if (!projectId) return null;
@@ -95,6 +115,9 @@ async function processNews() {
 
 export function startTranslationWorker() {
   if (process.env.TRANSLATION_WORKER_ENABLED === "false") return;
+  void scheduleLegacyContentTranslations()
+    .then(({ articles, news }) => console.info("Translation backfill queued", { articles, news }))
+    .catch((error) => console.error("Translation backfill failure", error instanceof Error ? error.message : error));
   setInterval(async () => {
     if (running) return;
     running = true;
