@@ -73,6 +73,7 @@ export default async function articleRoutes(app: FastifyInstance) {
             status: { type: "string", enum: ["DRAFT", "PUBLISHED", "ARCHIVED"] },
             tag: { type: "string", description: "Slug da tag para filtro" },
             featured: { type: "string", enum: ["true", "false"] },
+            locale: { type: "string", enum: ["pt-BR", "en", "zh-CN"] },
           },
         },
         response: {
@@ -87,12 +88,13 @@ export default async function articleRoutes(app: FastifyInstance) {
       },
     },
     async (request) => {
-    const { page, limit, status, tag, featured } = request.query as {
+    const { page, limit, status, tag, featured, locale } = request.query as {
       page?: string;
       limit?: string;
       status?: ArticleStatus;
       tag?: string;
       featured?: string;
+      locale?: string;
     };
 
     return articleService.listArticles({
@@ -101,6 +103,7 @@ export default async function articleRoutes(app: FastifyInstance) {
       status,
       tagSlug: tag,
       isFeatured: featured !== undefined ? featured === "true" : undefined,
+      locale,
     });
   });
 
@@ -126,13 +129,14 @@ export default async function articleRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { idOrSlug } = request.params as { idOrSlug: string };
+      const { locale } = request.query as { locale?: string };
 
       const UUID_REGEX =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
       const article = UUID_REGEX.test(idOrSlug)
-        ? await articleService.getArticleById(idOrSlug)
-        : await articleService.getArticleBySlug(idOrSlug);
+        ? await articleService.getArticleById(idOrSlug, locale)
+        : await articleService.getArticleBySlug(idOrSlug, locale);
 
       if (!article) return reply.code(404).send({ error: "Article not found" });
       return article;
