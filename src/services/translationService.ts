@@ -14,7 +14,7 @@ const PROVIDER_TIMEOUT_MS = Number(process.env.TRANSLATION_PROVIDER_TIMEOUT_MS ?
 type Source = { metaTitle: string; metaDescription: string | null; content: string };
 
 function isRetryableSetupFailure(lastError: string | null) {
-  return lastError === "Google Cloud Translation is not configured" || lastError === "Empty request.";
+  return lastError === "Google Cloud Translation is not configured" || Boolean(lastError?.includes("Empty request."));
 }
 
 function withProviderTimeout<T>(promise: Promise<T>, stage: string): Promise<T> {
@@ -97,6 +97,12 @@ async function translate(source: Source, locale: string) {
   console.info("Translation provider authentication started", { locale });
   const accessToken = await withProviderTimeout(configured.auth.getAccessToken(), "authentication");
   if (!accessToken) throw new Error("Google Cloud Translation authentication returned no token");
+  const fields = [
+    ["metaTitle", source.metaTitle],
+    ["metaDescription", source.metaDescription],
+    ["content", source.content],
+  ].filter((entry): entry is ["metaTitle" | "metaDescription" | "content", string] => Boolean(entry[1]?.trim()));
+  if (!fields.length) throw new Error("Translation source is empty");
   console.info("Translation provider request started", { locale });
   const response = await fetch(
     `https://translation.googleapis.com/v3/projects/${configured.projectId}/locations/global:translateText`,
@@ -107,7 +113,7 @@ async function translate(source: Source, locale: string) {
         sourceLanguageCode: "pt",
         targetLanguageCode: locale,
         mimeType: "text/html",
-        contents: [source.metaTitle, source.metaDescription ?? "", source.content],
+        contents: fields.map(([, value]) => value),
       }),
       signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     },
@@ -115,8 +121,13 @@ async function translate(source: Source, locale: string) {
   if (!response.ok) throw new Error(`Google Cloud Translation request failed (${response.status}): ${(await response.text()).slice(0, 300)}`);
   const payload = await response.json() as { translations?: Array<{ translatedText?: string }> };
   const values = payload.translations?.map((item) => item.translatedText ?? "") ?? [];
-  if (values.length !== 3) throw new Error("Unexpected translation response");
-  return { metaTitle: values[0], metaDescription: source.metaDescription ? values[1] : null, content: values[2] };
+  if (values.length !== fields.length) throw new Error("Unexpected translation response");
+  const translated = Object.fromEntries(fields.map(([field], index) => [field, values[index]]));
+  return {
+    metaTitle: translated.metaTitle ?? source.metaTitle,
+    metaDescription: source.metaDescription ? translated.metaDescription ?? source.metaDescription : null,
+    content: translated.content ?? source.content,
+  };
 }
 
 let running = false;
