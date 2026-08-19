@@ -21,6 +21,9 @@ const ArticleResponse = {
     publishedAt: { type: "string", format: "date-time", nullable: true },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" },
+    translationStatus: { type: "string", enum: ["PENDING", "PROCESSING", "READY", "FAILED"] },
+    translationLocale: { type: "string" },
+    isFallback: { type: "boolean" },
     tags: {
       type: "array",
       items: {
